@@ -6,6 +6,10 @@ from flask_sqlalchemy import SQLAlchemy
 db = SQLAlchemy()
 
 
+def _log(msg):
+    print(f"[Melo] {msg}", flush=True)
+
+
 def create_app(config_name=None):
     """Crear y configurar la aplicación."""
     from config import config
@@ -36,11 +40,18 @@ def create_app(config_name=None):
     api_secret = app.config.get('API_SECRET') or os.environ.get('API_SECRET') or os.environ.get('AUTH_TOKEN')
 
     @app.before_request
+    def log_and_handle_options():
+        _log(f"{request.method} {request.path}")
+        # OPTIONS debe responder 204 aquí para CORS preflight (antes del routing)
+        if request.method == 'OPTIONS':
+            resp = app.make_response(('', 204))
+            return resp
+        return None
+
+    @app.before_request
     def require_auth():
         if not request.path.startswith('/api'):
             return None
-        if request.method == 'OPTIONS':
-            return None  # CORS preflight no requiere token
         if request.path == '/api/auth/login':
             return None  # Login no requiere token
         if not api_secret:
@@ -55,12 +66,6 @@ def create_app(config_name=None):
 
     from app.routes import register_routes
     register_routes(app)
-
-    @app.route('/<path:path>', methods=['OPTIONS'])
-    @app.route('/', methods=['OPTIONS'])
-    def cors_preflight(path=''):
-        """Responde OPTIONS para CORS preflight."""
-        return '', 204
 
     with app.app_context():
         db.create_all()
