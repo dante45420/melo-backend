@@ -19,10 +19,12 @@ def create_app(config_name=None):
     if db_url and isinstance(db_url, str) and db_url.startswith('postgres://'):
         app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://' + db_url[11:]
 
-    # CORS: solo orígenes permitidos (frontend en Vercel). En dev: localhost.
+    # CORS: orígenes permitidos (frontend en Vercel). En dev: localhost.
     origins = app.config.get('CORS_ORIGINS') or []
     if not origins and env == 'development':
         origins = ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173']
+    if not origins and env == 'production':
+        origins = ['https://melo-frontend.vercel.app']  # Fallback común; mejor configurar CORS_ORIGINS en Render
     CORS(app, origins=origins, supports_credentials=True, allow_headers=['Content-Type', 'Authorization'])
 
     db.init_app(app)
@@ -34,6 +36,8 @@ def create_app(config_name=None):
     def require_auth():
         if not request.path.startswith('/api'):
             return None
+        if request.method == 'OPTIONS':
+            return None  # CORS preflight no requiere token
         if request.path == '/api/auth/login':
             return None  # Login no requiere token
         if not api_secret:
