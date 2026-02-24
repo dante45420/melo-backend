@@ -4,7 +4,7 @@ from app import db
 from app.models import Cliente, Prompt, Feedback, Instancia, Generacion, CreditoMovimiento, PrecioTarifa
 from decimal import Decimal
 from app.services.prompt_generator import generar_prompt as svc_generar_prompt
-from app.services.media_generator import generar_imagen, generar_video
+from app.services.media_generator import generar_imagen, generar_video, submit_video, obtener_resultado_video
 from app.services.profile_updater import extraer_insights_de_feedback
 
 bp = Blueprint("clientes", __name__, url_prefix="/api/clientes")
@@ -236,7 +236,8 @@ def generar_media(cid):
         if tipo == "imagen":
             url, costo, model = generar_imagen(prompt_texto, modelo=modelo_img, image_urls=image_urls if image_urls else None)
         elif tipo == "video":
-            url, costo, model = generar_video(
+            # Video: submit async para evitar timeout de Render (60-120s)
+            req_id, model = submit_video(
                 prompt_texto,
                 image_url=image_url,
                 tail_image_url=tail_image_url,
@@ -244,6 +245,20 @@ def generar_media(cid):
                 modelo_t2v=modelo_t2v,
                 modelo_i2v=modelo_i2v,
             )
+            g = Generacion(
+                cliente_id=cid, instancia_id=inst.id, tipo=tipo, costo_usd=Decimal("0"),
+                estado="procesando", fal_request_id=req_id, fal_model=model
+            )
+            db.session.add(g)
+            db.session.commit()
+            return jsonify({
+                "status": "procesando",
+                "generacion_id": g.id,
+                "instancia_id": inst.id,
+                "url": None,
+                "costo_usd": None,
+                "modelo": model,
+            }), 202
         elif tipo == "carrusel":
             num = int(data.get("num_imagenes", 3))
             urls = []
@@ -291,6 +306,38 @@ def generar_media(cid):
         return jsonify({"error": f"Error: {err_msg}"}), 503
 
 
+@bp.route("/<int:cid>/generaciones/<int:gid>/result", methods=["GET"])
+def obtener_resultado_generacion(cid, gid):
+    """Poll para video: obtiene el resultado cuando fal.ai termina."""
+    c = Cliente.query.get_or_404(cid)
+    g = Generacion.query.filter_by(id=gid, cliente_id=cid).first_or_404()
+    if g.estado != "procesando" or not g.fal_request_id or not g.fal_model:
+        return jsonify({
+            "status": g.estado,
+            "url": g.url_asset,
+            "generacion_id": g.id,
+            "costo_usd": float(g.costo_usd) if g.costo_usd else 0,
+            "modelo": g.fal_model,
+        })
+    result = obtener_resultado_video(g.fal_request_id, g.fal_model)
+    if result is None:
+        return jsonify({"status": "procesando", "generacion_id": g.id}), 202
+    url, costo, model = result
+    g.url_asset = url
+    g.costo_usd = costo
+    g.estado = "pendiente"
+    g.fal_request_id = None
+    db.session.commit()
+    return jsonify({
+        "status": "pendiente",
+        "url": url,
+        "generacion_id": g.id,
+        "instancia_id": g.instancia_id,
+        "costo_usd": float(costo) if costo else 0,
+        "modelo": model,
+    })
+
+
 @bp.route("/<int:cid>/generaciones", methods=["GET"])
 def listar_generaciones(cid):
     gens = Generacion.query.filter_by(cliente_id=cid).order_by(Generacion.created_at.desc()).limit(50).all()
@@ -302,6 +349,7 @@ def listar_generaciones(cid):
             "costo_usd": float(g.costo_usd) if g.costo_usd else 0,
             "estado": g.estado,
             "motivo_rechazo": getattr(g, "motivo_rechazo", None),
+            "fal_request_id": getattr(g, "fal_request_id", None),
             "url_asset": g.url_asset,
             "created_at": g.created_at.isoformat() if g.created_at else None,
         }

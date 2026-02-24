@@ -67,9 +67,11 @@ class Generacion(db.Model):
     instancia_id = db.Column(db.Integer, db.ForeignKey('instancias.id'), nullable=False)
     tipo = db.Column(db.String(20), nullable=False)  # imagen, carrusel, video
     costo_usd = db.Column(db.Numeric(10, 6), default=Decimal('0'))
-    estado = db.Column(db.String(20), default='pendiente')  # pendiente, aprobada, rechazada
+    estado = db.Column(db.String(20), default='pendiente')  # pendiente, aprobada, rechazada, procesando
     motivo_rechazo = db.Column(db.Text)
     url_asset = db.Column(db.Text)
+    fal_request_id = db.Column(db.String(100), nullable=True)  # para video async (submit + poll)
+    fal_model = db.Column(db.String(200), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 

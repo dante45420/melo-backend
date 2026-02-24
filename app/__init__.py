@@ -103,7 +103,12 @@ def create_app(config_name=None):
                 db.session.execute(text("ALTER TABLE generaciones ADD COLUMN motivo_rechazo TEXT"))
                 db.session.commit()
                 _log("Columna motivo_rechazo añadida.")
+            if "fal_request_id" not in cols:
+                db.session.execute(text("ALTER TABLE generaciones ADD COLUMN fal_request_id VARCHAR(100)"))
+                db.session.execute(text("ALTER TABLE generaciones ADD COLUMN fal_model VARCHAR(200)"))
+                db.session.commit()
+                _log("Columnas fal_request_id, fal_model añadidas.")
         except Exception as e:
-            _log(f"Migración motivo_rechazo: {e}")
+            _log(f"Migración: {e}")
 
     return app
