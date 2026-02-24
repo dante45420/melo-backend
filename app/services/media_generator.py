@@ -8,24 +8,21 @@ except ImportError:
     fal_client = None
 
 
-# Modelos fal.ai (ver https://fal.ai/models)
-FAL_MODEL_IMAGEN = "fal-ai/flux/dev"
-FAL_MODEL_VIDEO_T2V = "fal-ai/ltx-video"  # text-to-video (preview) o fal-ai/ltxv-2/text-to-video/fast
-FAL_MODEL_VIDEO_I2V = "fal-ai/kling-video/v2.5-turbo/pro/image-to-video"  # image-to-video
-
-
-def generar_imagen(prompt: str) -> tuple[str, Decimal]:
+def generar_imagen(prompt: str, modelo: str = None) -> tuple[str, Decimal, str]:
     """
     Genera una imagen con fal.ai Flux.
-    Retorna (url_imagen, costo_usd).
+    Retorna (url_imagen, costo_usd, modelo).
     """
     if not fal_client:
         raise ValueError("fal-client no instalado")
-    key = os.environ.get("FAL_KEY")
-    if not key:
-        raise ValueError("FAL_KEY no configurada")
+    if not os.environ.get("FAL_KEY"):
+        raise ValueError("FAL_KEY no configurada. Añádela en Render Environment.")
 
-    result = fal_client.run(FAL_MODEL_IMAGEN, arguments={"prompt": prompt})
+    if not modelo:
+        from app.services.modelo_config import get_modelo_default
+        modelo = get_modelo_default("imagen")
+
+    result = fal_client.run(modelo, arguments={"prompt": prompt})
 
     url = None
     if isinstance(result, dict):
@@ -38,22 +35,27 @@ def generar_imagen(prompt: str) -> tuple[str, Decimal]:
             url = result["url"]
 
     costo = _extraer_costo_fal(result)
-    return url or "", costo
+    return url or "", costo, modelo
 
 
-def generar_video(prompt: str, image_url: str = None) -> tuple[str, Decimal]:
+def generar_video(prompt: str, image_url: str = None, modelo_t2v: str = None, modelo_i2v: str = None) -> tuple[str, Decimal, str]:
     """
     Genera un video con fal.ai.
     Si image_url se proporciona, usa image-to-video (Kling); si no, text-to-video (LTX).
-    Retorna (url_video, costo_usd).
+    Retorna (url_video, costo_usd, modelo).
     """
     if not fal_client:
         raise ValueError("fal-client no instalado")
-    key = os.environ.get("FAL_KEY")
-    if not key:
-        raise ValueError("FAL_KEY no configurada")
+    if not os.environ.get("FAL_KEY"):
+        raise ValueError("FAL_KEY no configurada. Añádela en Render Environment.")
 
-    model = FAL_MODEL_VIDEO_I2V if image_url else FAL_MODEL_VIDEO_T2V
+    if not modelo_t2v or not modelo_i2v:
+        from app.services.modelo_config import get_modelo_default
+        if not modelo_t2v:
+            modelo_t2v = get_modelo_default("video_t2v")
+        if not modelo_i2v:
+            modelo_i2v = get_modelo_default("video_i2v")
+    model = modelo_i2v if image_url else modelo_t2v
     args = {"prompt": prompt}
     if image_url:
         args["image_url"] = image_url
@@ -71,7 +73,7 @@ def generar_video(prompt: str, image_url: str = None) -> tuple[str, Decimal]:
             url = result["url"]
 
     costo = _extraer_costo_fal(result)
-    return url or "", costo
+    return url or "", costo, model
 
 
 def _extraer_costo_fal(result: dict) -> Decimal:

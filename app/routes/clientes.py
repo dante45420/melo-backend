@@ -113,8 +113,9 @@ def generar_prompt(cid):
     data = request.get_json() or {}
     tipo = data.get("tipo", "imagen")
     contexto = data.get("contexto")
+    modelo_override = data.get("modelo")
     try:
-        contenido, costo = svc_generar_prompt(c, tipo, contexto)
+        contenido, costo, modelo = svc_generar_prompt(c, tipo, contexto, modelo=modelo_override)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
@@ -127,6 +128,7 @@ def generar_prompt(cid):
         "id": p.id,
         "contenido": contenido,
         "costo_usd": float(costo) if costo else None,
+        "modelo": modelo,
     })
 
 
@@ -197,48 +199,61 @@ def generar_media(cid):
     if not prompt_texto:
         return jsonify({"error": "Se requiere el prompt"}), 400
 
-    if instancia_id:
-        inst = Instancia.query.filter_by(id=instancia_id, cliente_id=cid).first_or_404()
-    else:
-        inst = Instancia(cliente_id=cid, tipo=tipo)
-        db.session.add(inst)
-        db.session.flush()  # obtener id
+    try:
+        if instancia_id:
+            inst = Instancia.query.filter_by(id=instancia_id, cliente_id=cid).first_or_404()
+        else:
+            inst = Instancia(cliente_id=cid, tipo=tipo)
+            db.session.add(inst)
+            db.session.flush()
 
-    if tipo == "imagen":
-        url, costo = generar_imagen(prompt_texto)
-    elif tipo == "video":
-        url, costo = generar_video(prompt_texto, data.get("image_url"))
-    elif tipo == "carrusel":
-        num = int(data.get("num_imagenes", 3))
-        urls = []
-        costos = []
-        for _ in range(num):
-            u, c = generar_imagen(prompt_texto)
-            urls.append(u)
-            costos.append(c)
-        costo_total = sum(costos)
-        for u, c in zip(urls, costos):
-            g = Generacion(cliente_id=cid, instancia_id=inst.id, tipo="carrusel", costo_usd=c, estado="pendiente", url_asset=u)
-            db.session.add(g)
+        modelo_img = data.get("modelo")
+        modelo_t2v = data.get("modelo_t2v")
+        modelo_i2v = data.get("modelo_i2v")
+        if tipo == "imagen":
+            url, costo, model = generar_imagen(prompt_texto, modelo=modelo_img)
+        elif tipo == "video":
+            url, costo, model = generar_video(prompt_texto, data.get("image_url"), modelo_t2v=modelo_t2v, modelo_i2v=modelo_i2v)
+        elif tipo == "carrusel":
+            num = int(data.get("num_imagenes", 3))
+            urls = []
+            costos = []
+            model = None
+            for _ in range(num):
+                u, c, m = generar_imagen(prompt_texto, modelo=modelo_img)
+                urls.append(u)
+                costos.append(c)
+                model = m
+            costo_total = sum(costos)
+            for u, c in zip(urls, costos):
+                g = Generacion(cliente_id=cid, instancia_id=inst.id, tipo="carrusel", costo_usd=c, estado="pendiente", url_asset=u)
+                db.session.add(g)
+            db.session.commit()
+            return jsonify({
+                "url": urls[0] if urls else "",
+                "generacion_id": g.id,
+                "instancia_id": inst.id,
+                "costo_usd": float(costo_total),
+                "modelo": model,
+            })
+        else:
+            return jsonify({"error": "tipo debe ser imagen, video o carrusel"}), 400
+
+        g = Generacion(cliente_id=cid, instancia_id=inst.id, tipo=tipo, costo_usd=costo, estado="pendiente", url_asset=url)
+        db.session.add(g)
         db.session.commit()
         return jsonify({
-            "url": urls[0] if urls else "",
+            "url": url,
             "generacion_id": g.id,
             "instancia_id": inst.id,
-            "costo_usd": float(costo_total),
+            "costo_usd": float(costo),
+            "modelo": model,
         })
-    else:
-        return jsonify({"error": "tipo debe ser imagen, video o carrusel"}), 400
-
-    g = Generacion(cliente_id=cid, instancia_id=inst.id, tipo=tipo, costo_usd=costo, estado="pendiente", url_asset=url)
-    db.session.add(g)
-    db.session.commit()
-    return jsonify({
-        "url": url,
-        "generacion_id": g.id,
-        "instancia_id": inst.id,
-        "costo_usd": float(costo),
-    })
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        print(f"[Melo] generar-media error: {e}", flush=True)
+        return jsonify({"error": f"Error fal.ai: {str(e)}"}), 503
 
 
 @bp.route("/<int:cid>/generaciones", methods=["GET"])

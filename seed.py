@@ -6,13 +6,27 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import create_app, db
-from app.models import Cliente, PrecioTarifa
+from app.models import Cliente, PrecioTarifa, ModeloDefault
 from decimal import Decimal
 
 
 def seed():
     app = create_app()
     with app.app_context():
+        # Modelos por defecto (OpenRouter para prompt, fal.ai para imagen/video)
+        modelos_default = [
+            ("prompt", "openai/gpt-4o-mini"),
+            ("imagen", "fal-ai/flux/dev"),
+            ("video_t2v", "fal-ai/ltx-video"),
+            ("video_i2v", "fal-ai/kling-video/v2.5-turbo/pro/image-to-video"),
+        ]
+        for clave, modelo in modelos_default:
+            md = ModeloDefault.query.filter_by(clave=clave).first()
+            if not md:
+                md = ModeloDefault(clave=clave, modelo=modelo)
+                db.session.add(md)
+                print(f"  Creado ModeloDefault: {clave} = {modelo}")
+
         # Precios por defecto
         for tipo, precio in [("imagen", 10), ("carrusel", 30), ("video", 50)]:
             pt = PrecioTarifa.query.filter_by(tipo=tipo).first()

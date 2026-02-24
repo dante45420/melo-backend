@@ -6,14 +6,18 @@ from openai import OpenAI
 from decimal import Decimal
 
 
-def generar_prompt(cliente, tipo: str, contexto: str = None) -> tuple[str, Decimal | None]:
+def generar_prompt(cliente, tipo: str, contexto: str = None, modelo: str = None) -> tuple[str, Decimal | None, str]:
     """
     Genera un prompt optimizado para imagen/video usando OpenRouter.
-    Retorna (contenido_prompt, costo_usd).
+    Retorna (contenido_prompt, costo_usd, modelo).
     """
     api_key = os.environ.get('OPENROUTER_API_KEY')
     if not api_key:
         raise ValueError("OPENROUTER_API_KEY no configurada. Añádela en Render Environment.")
+
+    if not modelo:
+        from app.services.modelo_config import get_modelo_default
+        modelo = get_modelo_default("prompt")
 
     # Construir contexto del perfil
     perfil = f"""
@@ -42,7 +46,7 @@ Responde ÚNICAMENTE con el prompt, sin explicaciones ni texto adicional."""
 
     try:
         response = client.chat.completions.create(
-            model="openai/gpt-4o-mini",
+            model=modelo,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
@@ -68,4 +72,4 @@ Responde ÚNICAMENTE con el prompt, sin explicaciones ni texto adicional."""
         # Alternativa: algunos endpoints devuelven cost en otro formato
         # Por ahora usamos 0 si no hay dato explícito (OpenRouter puede variar)
 
-    return contenido, costo
+    return contenido, costo, modelo

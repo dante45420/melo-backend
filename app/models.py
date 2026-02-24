@@ -106,3 +106,12 @@ class PrecioTarifa(db.Model):
     tipo = db.Column(db.String(20), unique=True, nullable=False)
     precio = db.Column(db.Numeric(12, 2), nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ModeloDefault(db.Model):
+    """Modelos por defecto para cada tipo de generación (editable desde la web)."""
+    __tablename__ = 'modelo_defaults'
+    id = db.Column(db.Integer, primary_key=True)
+    clave = db.Column(db.String(50), unique=True, nullable=False)  # prompt, imagen, video_t2v, video_i2v
+    modelo = db.Column(db.String(200), nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
