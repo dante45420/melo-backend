@@ -23,7 +23,7 @@ def create_app(config_name=None):
     if db_url and isinstance(db_url, str) and db_url.startswith('postgres://'):
         app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://' + db_url[11:]
 
-    # CORS: solo orígenes de CORS_ORIGINS (variable de entorno)
+    # CORS: orígenes de CORS_ORIGINS (ej: https://melo-frontend.vercel.app)
     origins = app.config.get('CORS_ORIGINS') or []
     CORS(
         app,
@@ -32,12 +32,15 @@ def create_app(config_name=None):
         allow_headers=['Content-Type', 'Authorization'],
         methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
         expose_headers=['Authorization'],
+        intercept_exceptions=True,
     )
 
     @app.errorhandler(500)
     def handle_500(e):
         """Devuelve JSON con CORS para que el frontend reciba el error."""
+        import traceback
         _log(f"500 error: {e}")
+        traceback.print_exc()
         return jsonify({"error": "Error interno del servidor"}), 500
 
     db.init_app(app)

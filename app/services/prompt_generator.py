@@ -6,10 +6,17 @@ from openai import OpenAI
 from decimal import Decimal
 
 
-def generar_prompt(cliente, tipo: str, contexto: str = None, modelo: str = None) -> tuple[str, Decimal | None, str]:
+def generar_prompt(
+    cliente,
+    tipo: str,
+    contexto: str = None,
+    modelo: str = None,
+    rechazos_previos: list = None,
+    ver_estructura: bool = False,
+):
     """
     Genera un prompt optimizado para imagen/video usando OpenRouter.
-    Retorna (contenido_prompt, costo_usd, modelo).
+    Retorna (contenido, costo, modelo) o si ver_estructura: (contenido, costo, modelo, estructura_dict).
     """
     api_key = os.environ.get('OPENROUTER_API_KEY')
     if not api_key:
@@ -31,13 +38,16 @@ Referencias visuales: {json.dumps(cliente.referencias_visuales or [])}
 """
     if contexto:
         perfil += f"\nContexto adicional para esta generación: {contexto}"
+    if rechazos_previos and len(rechazos_previos) > 0:
+        perfil += "\n\nRechazos previos (evitar estos problemas en el nuevo prompt):\n" + "\n".join(f"- {r}" for r in rechazos_previos if r)
 
     system_prompt = """Eres un experto en crear prompts para generación de imágenes y videos con IA.
 Tu tarea es crear un prompt detallado, en inglés, optimizado para que modelos como Flux o Kling generen contenido de alta calidad para marketing.
 Incluye: escena, estilo visual, iluminación, composición, mood, y cualquier detalle que mejore el resultado.
 Responde ÚNICAMENTE con el prompt, sin explicaciones ni texto adicional."""
 
-    user_message = f"Genera un prompt para un {tipo} de marketing digital.\n\nPerfil del cliente:\n{perfil}"
+    instruccion = f"Genera un prompt para un {tipo} de marketing digital."
+    user_message = f"{instruccion}\n\nPerfil del cliente:\n{perfil}"
 
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
@@ -65,11 +75,21 @@ Responde ÚNICAMENTE con el prompt, sin explicaciones ni texto adicional."""
     contenido = response.choices[0].message.content.strip()
     costo = None
     if hasattr(response, 'usage') and response.usage:
-        # OpenRouter devuelve usage; algunos modelos incluyen total_cost
         usage = response.usage
         if hasattr(usage, 'total_cost') and usage.total_cost is not None:
             costo = Decimal(str(usage.total_cost))
-        # Alternativa: algunos endpoints devuelven cost en otro formato
-        # Por ahora usamos 0 si no hay dato explícito (OpenRouter puede variar)
 
+    if ver_estructura:
+        estructura = {
+            "modelo": modelo,
+            "instruccion": instruccion,
+            "perfil_cliente": perfil,
+            "system_prompt": system_prompt,
+            "user_message": user_message,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+        }
+        return contenido, costo, modelo, estructura
     return contenido, costo, modelo

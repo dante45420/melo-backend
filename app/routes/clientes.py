@@ -114,22 +114,41 @@ def generar_prompt(cid):
     tipo = data.get("tipo", "imagen")
     contexto = data.get("contexto")
     modelo_override = data.get("modelo")
+    ver_estructura = bool(data.get("ver_estructura"))
+    # Rechazos previos del cliente para mejorar el prompt
+    rechazos = (
+        Generacion.query.filter_by(cliente_id=cid, estado="rechazada")
+        .order_by(Generacion.created_at.desc())
+        .limit(15)
+        .all()
+    )
+    rechazos_previos = [g.motivo_rechazo for g in rechazos if g.motivo_rechazo and str(g.motivo_rechazo).strip()]
     try:
-        contenido, costo, modelo = svc_generar_prompt(c, tipo, contexto, modelo=modelo_override)
+        result = svc_generar_prompt(
+            c, tipo, contexto,
+            modelo=modelo_override,
+            rechazos_previos=rechazos_previos,
+            ver_estructura=ver_estructura,
+        )
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         print(f"[Melo] generar-prompt error: {e}", flush=True)
         return jsonify({"error": f"Error OpenRouter: {str(e)}"}), 503
+    contenido, costo, modelo = result[0], result[1], result[2]
+    estructura = result[3] if len(result) > 3 else None
     p = Prompt(cliente_id=cid, tipo=tipo, contenido=contenido, costo_usd=costo)
     db.session.add(p)
     db.session.commit()
-    return jsonify({
+    out = {
         "id": p.id,
         "contenido": contenido,
         "costo_usd": float(costo) if costo else None,
         "modelo": modelo,
-    })
+    }
+    if estructura:
+        out["estructura"] = estructura
+    return jsonify(out)
 
 
 @bp.route("/<int:cid>/feedback", methods=["GET"])
@@ -265,8 +284,13 @@ def generar_media(cid):
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
+        import traceback
         print(f"[Melo] generar-media error: {e}", flush=True)
-        return jsonify({"error": f"Error fal.ai: {str(e)}"}), 503
+        traceback.print_exc()
+        err_msg = str(e)
+        if "motivo_rechazo" in err_msg or "column" in err_msg.lower():
+            err_msg = "Ejecuta: python migrate_motivo_rechazo.py"
+        return jsonify({"error": f"Error: {err_msg}"}), 503
 
 
 @bp.route("/<int:cid>/generaciones", methods=["GET"])
@@ -279,6 +303,7 @@ def listar_generaciones(cid):
             "tipo": g.tipo,
             "costo_usd": float(g.costo_usd) if g.costo_usd else 0,
             "estado": g.estado,
+            "motivo_rechazo": getattr(g, "motivo_rechazo", None),
             "url_asset": g.url_asset,
             "created_at": g.created_at.isoformat() if g.created_at else None,
         }
@@ -324,6 +349,20 @@ def aprobar_generacion(cid, gid):
     db.session.add(reg)
     db.session.commit()
     return jsonify({"message": "Aprobado", "cliente": _cliente_json(c)})
+
+
+@bp.route("/<int:cid>/generaciones/<int:gid>/rechazar", methods=["POST"])
+def rechazar_generacion(cid, gid):
+    c = Cliente.query.get_or_404(cid)
+    g = Generacion.query.filter_by(id=gid, cliente_id=cid).first_or_404()
+    if g.estado != "pendiente":
+        return jsonify({"error": "Solo se pueden rechazar generaciones pendientes"}), 400
+    data = request.get_json() or {}
+    motivo = (data.get("motivo") or "").strip()
+    g.estado = "rechazada"
+    g.motivo_rechazo = motivo or None
+    db.session.commit()
+    return jsonify({"message": "Rechazada", "cliente": _cliente_json(c)})
 
 
 @bp.route("/<int:cid>/instancias", methods=["GET"])

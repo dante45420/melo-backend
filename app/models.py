@@ -68,6 +68,7 @@ class Generacion(db.Model):
     tipo = db.Column(db.String(20), nullable=False)  # imagen, carrusel, video
     costo_usd = db.Column(db.Numeric(10, 6), default=Decimal('0'))
     estado = db.Column(db.String(20), default='pendiente')  # pendiente, aprobada, rechazada
+    motivo_rechazo = db.Column(db.Text)
     url_asset = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
