@@ -32,7 +32,7 @@ class Config:
     API_SECRET = os.environ.get('API_SECRET') or os.environ.get('AUTH_TOKEN') or ''
     # Orígenes CORS permitidos (URL del frontend en Vercel, ej: https://melo.vercel.app)
     _cors = os.environ.get('CORS_ORIGINS', '') or ''
-    CORS_ORIGINS = [x.strip() for x in _cors.split(',') if x.strip()]
+    CORS_ORIGINS = [x.strip().rstrip('/') for x in _cors.split(',') if x.strip()]
 
 
 class DevelopmentConfig(Config):
