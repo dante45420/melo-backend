@@ -35,6 +35,22 @@ def create_app(config_name=None):
         intercept_exceptions=True,
     )
 
+    @app.after_request
+    def add_cors_to_all(resp):
+        """Garantiza CORS en todas las respuestas (incl. 500/503) para que el frontend reciba el error."""
+        origin = request.headers.get('Origin')
+        if not origin:
+            return resp
+        # Permitir si el origen está en la lista o es el frontend de Vercel (fallback en Render)
+        norm = origin.rstrip('/')
+        allowed = (origins and norm in [o.rstrip('/') for o in origins]) or 'melo-frontend.vercel.app' in origin
+        if allowed:
+            resp.headers['Access-Control-Allow-Origin'] = origin
+            resp.headers['Access-Control-Allow-Credentials'] = 'true'
+            resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+            resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        return resp
+
     @app.errorhandler(500)
     def handle_500(e):
         """Devuelve JSON con CORS para que el frontend reciba el error."""
