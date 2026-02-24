@@ -18,12 +18,13 @@ def _get_default(clave: str) -> str:
 def obtener_default():
     """Devuelve los modelos por defecto actuales."""
     defaults = {}
-    for clave in ("prompt", "imagen", "video_t2v", "video_i2v"):
+    for clave in ("prompt", "imagen", "imagen_editar", "video_t2v", "video_i2v"):
         defaults[clave] = _get_default(clave)
     # Valores fallback si no existen en BD
     fallback = {
         "prompt": "openai/gpt-4o-mini",
         "imagen": "fal-ai/flux/dev",
+        "imagen_editar": "fal-ai/flux-2/turbo/edit",
         "video_t2v": "fal-ai/ltx-video",
         "video_i2v": "fal-ai/kling-video/v2.5-turbo/pro/image-to-video",
     }
@@ -38,7 +39,7 @@ def actualizar_default():
     """Actualiza los modelos por defecto."""
     data = request.get_json() or {}
     for clave, modelo in data.items():
-        if clave not in ("prompt", "imagen", "video_t2v", "video_i2v"):
+        if clave not in ("prompt", "imagen", "imagen_editar", "video_t2v", "video_i2v"):
             continue
         modelo_str = (modelo or "").strip()
         if not modelo_str:
@@ -85,8 +86,8 @@ def listar_openrouter():
 def listar_fal():
     """Lista modelos disponibles en fal.ai por categoría."""
     category = request.args.get("category", "text-to-image")
-    # Categorías válidas: text-to-image, text-to-video, image-to-video
-    valid = ("text-to-image", "text-to-video", "image-to-video")
+    # Categorías válidas: text-to-image, text-to-video, image-to-video, image-to-image
+    valid = ("text-to-image", "text-to-video", "image-to-video", "image-to-image")
     if category not in valid:
         category = "text-to-image"
     api_key = os.environ.get("FAL_KEY", "")

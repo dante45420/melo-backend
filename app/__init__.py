@@ -34,6 +34,12 @@ def create_app(config_name=None):
         expose_headers=['Authorization'],
     )
 
+    @app.errorhandler(500)
+    def handle_500(e):
+        """Devuelve JSON con CORS para que el frontend reciba el error."""
+        _log(f"500 error: {e}")
+        return jsonify({"error": "Error interno del servidor"}), 500
+
     db.init_app(app)
 
     # Protección API: validar token en todas las rutas /api/*

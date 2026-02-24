@@ -17,6 +17,7 @@ def seed():
         modelos_default = [
             ("prompt", "openai/gpt-4o-mini"),
             ("imagen", "fal-ai/flux/dev"),
+            ("imagen_editar", "fal-ai/flux-2/turbo/edit"),
             ("video_t2v", "fal-ai/ltx-video"),
             ("video_i2v", "fal-ai/kling-video/v2.5-turbo/pro/image-to-video"),
         ]

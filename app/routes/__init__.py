@@ -4,6 +4,7 @@ from app.routes.clientes import bp as clientes_bp
 from app.routes.precios import bp as precios_bp
 from app.routes.contabilidad import bp as contabilidad_bp
 from app.routes.modelos import bp as modelos_bp
+from app.routes.upload import bp as upload_bp
 
 
 def register_routes(app):
@@ -13,3 +14,4 @@ def register_routes(app):
     app.register_blueprint(precios_bp)
     app.register_blueprint(contabilidad_bp)
     app.register_blueprint(modelos_bp)
+    app.register_blueprint(upload_bp)

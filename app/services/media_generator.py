@@ -8,9 +8,11 @@ except ImportError:
     fal_client = None
 
 
-def generar_imagen(prompt: str, modelo: str = None) -> tuple[str, Decimal, str]:
+def generar_imagen(prompt: str, modelo: str = None, image_urls: list = None) -> tuple[str, Decimal, str]:
     """
-    Genera una imagen con fal.ai Flux.
+    Genera una imagen con fal.ai.
+    - Si image_urls está vacío/None: text-to-image (Flux).
+    - Si image_urls tiene URLs: image-to-image / editar (Flux 2 Edit).
     Retorna (url_imagen, costo_usd, modelo).
     """
     if not fal_client:
@@ -18,11 +20,15 @@ def generar_imagen(prompt: str, modelo: str = None) -> tuple[str, Decimal, str]:
     if not os.environ.get("FAL_KEY"):
         raise ValueError("FAL_KEY no configurada. Añádela en Render Environment.")
 
+    from app.services.modelo_config import get_modelo_default
     if not modelo:
-        from app.services.modelo_config import get_modelo_default
-        modelo = get_modelo_default("imagen")
+        modelo = get_modelo_default("imagen_editar") if image_urls else get_modelo_default("imagen")
 
-    result = fal_client.run(modelo, arguments={"prompt": prompt})
+    args = {"prompt": prompt}
+    if image_urls and len(image_urls) > 0:
+        args["image_urls"] = image_urls[:4]  # Flux edit soporta hasta 4
+
+    result = fal_client.run(modelo, arguments=args)
 
     url = None
     if isinstance(result, dict):
@@ -38,10 +44,19 @@ def generar_imagen(prompt: str, modelo: str = None) -> tuple[str, Decimal, str]:
     return url or "", costo, modelo
 
 
-def generar_video(prompt: str, image_url: str = None, modelo_t2v: str = None, modelo_i2v: str = None) -> tuple[str, Decimal, str]:
+def generar_video(
+    prompt: str,
+    image_url: str = None,
+    tail_image_url: str = None,
+    duration: int = 5,
+    modelo_t2v: str = None,
+    modelo_i2v: str = None,
+) -> tuple[str, Decimal, str]:
     """
     Genera un video con fal.ai.
-    Si image_url se proporciona, usa image-to-video (Kling); si no, text-to-video (LTX).
+    - image_url: imagen de inicio (si hay → image-to-video)
+    - tail_image_url: imagen de fin (solo algunos modelos, ej. Kling)
+    - duration: segundos (5–20 según modelo; Kling Pro: 5 o 10)
     Retorna (url_video, costo_usd, modelo).
     """
     if not fal_client:
@@ -59,6 +74,12 @@ def generar_video(prompt: str, image_url: str = None, modelo_t2v: str = None, mo
     args = {"prompt": prompt}
     if image_url:
         args["image_url"] = image_url
+    if tail_image_url:
+        args["tail_image_url"] = tail_image_url
+    # Duración: solo modelos que la soportan (Kling Pro: 5 o 10)
+    dur = max(5, min(20, int(duration) if duration else 5))
+    if "kling" in model.lower():
+        args["duration"] = str(10 if dur >= 10 else 5)
 
     result = fal_client.run(model, arguments=args)
 

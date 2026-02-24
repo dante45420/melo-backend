@@ -210,10 +210,23 @@ def generar_media(cid):
         modelo_img = data.get("modelo")
         modelo_t2v = data.get("modelo_t2v")
         modelo_i2v = data.get("modelo_i2v")
+        image_urls = data.get("image_urls") or []
+        if isinstance(image_urls, str):
+            image_urls = [image_urls] if image_urls.strip() else []
+        image_url = data.get("image_url") or (image_urls[0] if image_urls else None)
+        tail_image_url = data.get("tail_image_url") or (image_urls[1] if len(image_urls) > 1 else None)
+        duration = data.get("duration", 5)
         if tipo == "imagen":
-            url, costo, model = generar_imagen(prompt_texto, modelo=modelo_img)
+            url, costo, model = generar_imagen(prompt_texto, modelo=modelo_img, image_urls=image_urls if image_urls else None)
         elif tipo == "video":
-            url, costo, model = generar_video(prompt_texto, data.get("image_url"), modelo_t2v=modelo_t2v, modelo_i2v=modelo_i2v)
+            url, costo, model = generar_video(
+                prompt_texto,
+                image_url=image_url,
+                tail_image_url=tail_image_url,
+                duration=duration,
+                modelo_t2v=modelo_t2v,
+                modelo_i2v=modelo_i2v,
+            )
         elif tipo == "carrusel":
             num = int(data.get("num_imagenes", 3))
             urls = []
