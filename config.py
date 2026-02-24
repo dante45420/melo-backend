@@ -33,6 +33,12 @@ class Config:
     # Orígenes CORS permitidos (URL del frontend en Vercel, ej: https://melo.vercel.app)
     _cors = os.environ.get('CORS_ORIGINS', '') or ''
     CORS_ORIGINS = [x.strip().rstrip('/') for x in _cors.split(',') if x.strip()]
+    # Fallback cuando CORS_ORIGINS está vacío
+    if not CORS_ORIGINS:
+        if os.environ.get('RENDER'):
+            CORS_ORIGINS = ['https://melo-frontend.vercel.app']
+        elif os.environ.get('FLASK_ENV') == 'development':
+            CORS_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173']
 
 
 class DevelopmentConfig(Config):
