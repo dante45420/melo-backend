@@ -115,19 +115,14 @@ def generar_prompt(cid):
     contexto = data.get("contexto")
     modelo_override = data.get("modelo")
     ver_estructura = bool(data.get("ver_estructura"))
-    # Rechazos previos del cliente para mejorar el prompt
-    rechazos = (
-        Generacion.query.filter_by(cliente_id=cid, estado="rechazada")
-        .order_by(Generacion.created_at.desc())
-        .limit(15)
-        .all()
-    )
-    rechazos_previos = [g.motivo_rechazo for g in rechazos if g.motivo_rechazo and str(g.motivo_rechazo).strip()]
+    messages = data.get("messages") or []
+    solicitar_prompt_final = bool(data.get("solicitar_prompt_final"))
     try:
         result = svc_generar_prompt(
             c, tipo, contexto,
             modelo=modelo_override,
-            rechazos_previos=rechazos_previos,
+            messages=messages,
+            solicitar_prompt_final=solicitar_prompt_final,
             ver_estructura=ver_estructura,
         )
     except ValueError as e:
@@ -137,17 +132,20 @@ def generar_prompt(cid):
         return jsonify({"error": f"Error OpenRouter: {str(e)}"}), 503
     contenido, costo, modelo = result[0], result[1], result[2]
     estructura = result[3] if len(result) > 3 else None
-    p = Prompt(cliente_id=cid, tipo=tipo, contenido=contenido, costo_usd=costo)
-    db.session.add(p)
-    db.session.commit()
     out = {
-        "id": p.id,
         "contenido": contenido,
         "costo_usd": float(costo) if costo else None,
         "modelo": modelo,
+        "es_prompt_final": solicitar_prompt_final,
     }
     if estructura:
         out["estructura"] = estructura
+    # Solo guardar en BD cuando es el prompt final (no preguntas/respuestas)
+    if solicitar_prompt_final:
+        p = Prompt(cliente_id=cid, tipo=tipo, contenido=contenido, costo_usd=costo)
+        db.session.add(p)
+        db.session.commit()
+        out["id"] = p.id
     return jsonify(out)
 
 

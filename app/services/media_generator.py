@@ -54,10 +54,11 @@ def generar_video(
 ) -> tuple[str, Decimal, str]:
     """
     Genera un video con fal.ai.
-    - image_url: imagen de inicio (si hay → image-to-video)
-    - tail_image_url: imagen de fin (solo algunos modelos, ej. Kling)
+    - image_url: imagen de inicio (si hay → image-to-video con Kling)
+    - tail_image_url: imagen de fin (solo Kling)
     - duration: segundos (5–20 según modelo; Kling Pro: 5 o 10)
     Retorna (url_video, costo_usd, modelo).
+    Usa subscribe() para video (cola) con timeout 300s; run() puede fallar por timeout.
     """
     if not fal_client:
         raise ValueError("fal-client no instalado")
@@ -70,18 +71,37 @@ def generar_video(
             modelo_t2v = get_modelo_default("video_t2v")
         if not modelo_i2v:
             modelo_i2v = get_modelo_default("video_i2v")
-    model = modelo_i2v if image_url else modelo_t2v
+
+    # Text-to-video: LTX (sin image_url). Image-to-video: Kling (requiere image_url)
+    has_image = image_url and str(image_url).strip()
+    model = modelo_i2v if has_image else modelo_t2v
+
     args = {"prompt": prompt}
-    if image_url:
-        args["image_url"] = image_url
-    if tail_image_url:
-        args["tail_image_url"] = tail_image_url
-    # Duración: solo modelos que la soportan (Kling Pro: 5 o 10)
+    if has_image:
+        args["image_url"] = image_url.strip()
+    if tail_image_url and str(tail_image_url).strip():
+        args["tail_image_url"] = tail_image_url.strip()
+    # Duración: Kling Pro solo acepta "5" o "10"
     dur = max(5, min(20, int(duration) if duration else 5))
     if "kling" in model.lower():
         args["duration"] = str(10 if dur >= 10 else 5)
 
-    result = fal_client.run(model, arguments=args)
+    # Video usa cola; subscribe espera el resultado (run puede hacer timeout)
+    try:
+        result = fal_client.subscribe(
+            model,
+            arguments=args,
+            client_timeout=300,
+        )
+    except ValueError:
+        raise
+    except Exception as e:
+        err = str(e)
+        if "timeout" in err.lower() or "timed out" in err.lower():
+            raise ValueError("La generación de video tardó demasiado. Intenta con un prompt más corto o usa imagen de inicio.")
+        if "image_url" in err.lower() and "required" in err.lower():
+            raise ValueError("Para imagen→video necesitas subir una imagen de inicio.")
+        raise ValueError(f"Error fal.ai: {err}")
 
     url = None
     if isinstance(result, dict):

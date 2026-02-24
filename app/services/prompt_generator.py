@@ -1,7 +1,12 @@
-"""Generación de prompts con OpenRouter."""
+"""Generación de prompts con OpenRouter.
+
+Flujo conversacional:
+1. Primera llamada (sin messages): la IA hace preguntas para entender mejor.
+2. El usuario responde en lenguaje natural vía chat.
+3. Cuando el usuario pide el prompt final: la IA entrega el prompt optimizado.
+"""
 import os
 import json
-import requests
 from openai import OpenAI
 from decimal import Decimal
 
@@ -11,11 +16,17 @@ def generar_prompt(
     tipo: str,
     contexto: str = None,
     modelo: str = None,
-    rechazos_previos: list = None,
+    messages: list = None,
+    solicitar_prompt_final: bool = False,
     ver_estructura: bool = False,
 ):
     """
     Genera un prompt optimizado para imagen/video usando OpenRouter.
+    Flujo conversacional: la IA hace preguntas, el usuario responde, luego pide el prompt final.
+
+    - messages: historial de chat [{role, content}, ...]. Si vacío/None, la IA empieza con preguntas.
+    - solicitar_prompt_final: si True, la IA debe entregar el prompt final (no más preguntas).
+
     Retorna (contenido, costo, modelo) o si ver_estructura: (contenido, costo, modelo, estructura_dict).
     """
     api_key = os.environ.get('OPENROUTER_API_KEY')
@@ -26,7 +37,6 @@ def generar_prompt(
         from app.services.modelo_config import get_modelo_default
         modelo = get_modelo_default("prompt")
 
-    # Construir contexto del perfil
     perfil = f"""
 Cliente: {cliente.nombre}
 Empresa: {cliente.empresa or 'N/A'}
@@ -37,17 +47,38 @@ Colores preferidos: {cliente.colores_preferidos or 'N/A'}
 Referencias visuales: {json.dumps(cliente.referencias_visuales or [])}
 """
     if contexto:
-        perfil += f"\nContexto adicional para esta generación: {contexto}"
-    if rechazos_previos and len(rechazos_previos) > 0:
-        perfil += "\n\nRechazos previos (evitar estos problemas en el nuevo prompt):\n" + "\n".join(f"- {r}" for r in rechazos_previos if r)
+        perfil += f"\nContexto adicional: {contexto}"
 
-    system_prompt = """Eres un experto en crear prompts para generación de imágenes y videos con IA.
-Tu tarea es crear un prompt detallado, en inglés, optimizado para que modelos como Flux o Kling generen contenido de alta calidad para marketing.
-Incluye: escena, estilo visual, iluminación, composición, mood, y cualquier detalle que mejore el resultado.
-Responde ÚNICAMENTE con el prompt, sin explicaciones ni texto adicional."""
+    system_prompt = """Eres un experto en crear prompts para generación de imágenes y videos con IA (Flux, Kling).
+Tu tarea es ayudar al usuario a refinar su idea mediante preguntas, y al final entregar un prompt optimizado.
 
-    instruccion = f"Genera un prompt para un {tipo} de marketing digital."
-    user_message = f"{instruccion}\n\nPerfil del cliente:\n{perfil}"
+FLUJO:
+1. Si el usuario pide un prompt para imagen/video y NO hay mensajes previos: responde con 2-4 preguntas claras en español para entender mejor (qué escena, estilo visual, iluminación, mood, colores, texto a incluir, etc.). No generes el prompt aún.
+2. Si hay mensajes previos y el usuario responde: haz más preguntas si falta información, o confirma que tienes suficiente.
+3. Si el usuario indica que quiere el prompt final (o dice "genera el prompt", "ya está", "listo", etc.): entrega ÚNICAMENTE el prompt en inglés, optimizado para Flux/Kling. Sin explicaciones ni texto adicional. Incluye: escena, estilo, iluminación, composición, mood, y detalles que mejoren el resultado."""
+
+    # Construir mensajes para la API
+    msgs = [{"role": "system", "content": system_prompt}]
+
+    if messages and len(messages) > 0:
+        # Continuar conversación existente
+        for m in messages:
+            role = m.get("role", "user")
+            content = m.get("content", "").strip()
+            if content:
+                msgs.append({"role": role, "content": content})
+        if solicitar_prompt_final:
+            msgs.append({
+                "role": "user",
+                "content": "Ya tengo suficiente información. Genera ahora el prompt final en inglés, optimizado para Flux/Kling. Responde ÚNICAMENTE con el prompt, sin explicaciones."
+            })
+    else:
+        # Primera llamada: pedir prompt + perfil → IA hace preguntas
+        instruccion = f"Quiero generar un prompt para un {tipo} de marketing digital."
+        msgs.append({
+            "role": "user",
+            "content": f"{instruccion}\n\nPerfil del cliente:\n{perfil}"
+        })
 
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
@@ -57,10 +88,7 @@ Responde ÚNICAMENTE con el prompt, sin explicaciones ni texto adicional."""
     try:
         response = client.chat.completions.create(
             model=modelo,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
+            messages=msgs,
         )
     except Exception as e:
         err_msg = str(e)
@@ -82,14 +110,9 @@ Responde ÚNICAMENTE con el prompt, sin explicaciones ni texto adicional."""
     if ver_estructura:
         estructura = {
             "modelo": modelo,
-            "instruccion": instruccion,
             "perfil_cliente": perfil,
             "system_prompt": system_prompt,
-            "user_message": user_message,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
+            "messages": msgs,
         }
         return contenido, costo, modelo, estructura
     return contenido, costo, modelo
