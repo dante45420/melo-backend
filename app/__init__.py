@@ -34,6 +34,8 @@ def create_app(config_name=None):
     def require_auth():
         if not request.path.startswith('/api'):
             return None
+        if request.path == '/api/auth/login':
+            return None  # Login no requiere token
         if not api_secret:
             return None  # Sin token configurado, no bloquear (solo en dev)
         auth = request.headers.get('Authorization')
