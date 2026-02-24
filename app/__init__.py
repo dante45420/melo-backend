@@ -1,5 +1,5 @@
 """Factory de la aplicación Flask."""
-from flask import Flask
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 
@@ -15,13 +15,34 @@ def create_app(config_name=None):
     app = Flask(__name__)
     app.config.from_object(config[env])
 
-    # Render usa DATABASE_URL con postgres://; SQLAlchemy 1.4+ requiere postgresql://
     db_url = app.config.get('SQLALCHEMY_DATABASE_URI')
-    if db_url and db_url.startswith('postgres://'):
-        app.config['SQLALCHEMY_DATABASE_URI'] = db_url.replace('postgres://', 'postgresql://', 1)
+    if db_url and isinstance(db_url, str) and db_url.startswith('postgres://'):
+        app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://' + db_url[11:]
 
-    CORS(app, origins=['*'], supports_credentials=True)
+    # CORS: solo orígenes permitidos (frontend en Vercel). En dev: localhost.
+    origins = app.config.get('CORS_ORIGINS') or []
+    if not origins and env == 'development':
+        origins = ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173']
+    CORS(app, origins=origins, supports_credentials=True, allow_headers=['Content-Type', 'Authorization'])
+
     db.init_app(app)
+
+    # Protección API: validar token en todas las rutas /api/*
+    api_secret = app.config.get('API_SECRET') or os.environ.get('API_SECRET') or os.environ.get('AUTH_TOKEN')
+
+    @app.before_request
+    def require_auth():
+        if not request.path.startswith('/api'):
+            return None
+        if not api_secret:
+            return None  # Sin token configurado, no bloquear (solo en dev)
+        auth = request.headers.get('Authorization')
+        if not auth or not auth.startswith('Bearer '):
+            return jsonify({'error': 'Missing or invalid Authorization header'}), 401
+        token = auth[7:].strip()
+        if token != api_secret:
+            return jsonify({'error': 'Invalid token'}), 403
+        return None
 
     from app.routes import register_routes
     register_routes(app)
