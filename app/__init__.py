@@ -78,5 +78,16 @@ def create_app(config_name=None):
 
     with app.app_context():
         db.create_all()
+        # Migración: añadir motivo_rechazo si no existe (para deploys sin ejecutar migrate manualmente)
+        try:
+            from sqlalchemy import text, inspect
+            insp = inspect(db.engine)
+            cols = [c["name"] for c in insp.get_columns("generaciones")]
+            if "motivo_rechazo" not in cols:
+                db.session.execute(text("ALTER TABLE generaciones ADD COLUMN motivo_rechazo TEXT"))
+                db.session.commit()
+                _log("Columna motivo_rechazo añadida.")
+        except Exception as e:
+            _log(f"Migración motivo_rechazo: {e}")
 
     return app
