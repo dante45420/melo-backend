@@ -19,18 +19,8 @@ def create_app(config_name=None):
     if db_url and isinstance(db_url, str) and db_url.startswith('postgres://'):
         app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://' + db_url[11:]
 
-    # CORS: normalizar (quitar / final) y unir orígenes
-    def _norm(o):
-        return o.rstrip('/') if o else ''
-    raw = app.config.get('CORS_ORIGINS') or []
-    origins = [_norm(o) for o in raw if _norm(o)]
-    base_origins = [
-        'https://melo-frontend.vercel.app',
-        'http://localhost:5173',
-        'http://localhost:3000',
-        'http://127.0.0.1:5173',
-    ]
-    origins = list(set(base_origins + origins))
+    # CORS: solo orígenes de CORS_ORIGINS (variable de entorno)
+    origins = app.config.get('CORS_ORIGINS') or []
     CORS(
         app,
         origins=origins,

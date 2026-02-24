@@ -40,7 +40,6 @@ class DevelopmentConfig(Config):
     ENV = 'development'
     DEBUG = True
     SQLALCHEMY_DATABASE_URI = _get_database_url() or 'sqlite:///melo.db'
-    CORS_ORIGINS = ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173']
 
 
 class ProductionConfig(Config):
