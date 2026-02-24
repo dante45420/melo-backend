@@ -13,7 +13,7 @@ def generar_prompt(cliente, tipo: str, contexto: str = None) -> tuple[str, Decim
     """
     api_key = os.environ.get('OPENROUTER_API_KEY')
     if not api_key:
-        raise ValueError("OPENROUTER_API_KEY no configurada")
+        raise ValueError("OPENROUTER_API_KEY no configurada. Añádela en Render Environment.")
 
     # Construir contexto del perfil
     perfil = f"""
@@ -40,14 +40,24 @@ Responde ÚNICAMENTE con el prompt, sin explicaciones ni texto adicional."""
         api_key=api_key,
     )
 
-    response = client.chat.completions.create(
-        model="openai/gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message},
-        ],
-    )
+    try:
+        response = client.chat.completions.create(
+            model="openai/gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+        )
+    except Exception as e:
+        err_msg = str(e)
+        if "401" in err_msg or "authentication" in err_msg.lower():
+            raise ValueError("OpenRouter: API key inválida o expirada")
+        if "429" in err_msg or "rate" in err_msg.lower():
+            raise ValueError("OpenRouter: límite de uso alcanzado, intenta más tarde")
+        raise
 
+    if not response.choices or len(response.choices) == 0:
+        raise ValueError("OpenRouter no devolvió respuesta. Reintenta.")
     contenido = response.choices[0].message.content.strip()
     costo = None
     if hasattr(response, 'usage') and response.usage:

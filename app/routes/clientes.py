@@ -113,8 +113,13 @@ def generar_prompt(cid):
     data = request.get_json() or {}
     tipo = data.get("tipo", "imagen")
     contexto = data.get("contexto")
-
-    contenido, costo = svc_generar_prompt(c, tipo, contexto)
+    try:
+        contenido, costo = svc_generar_prompt(c, tipo, contexto)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        print(f"[Melo] generar-prompt error: {e}", flush=True)
+        return jsonify({"error": f"Error OpenRouter: {str(e)}"}), 503
     p = Prompt(cliente_id=cid, tipo=tipo, contenido=contenido, costo_usd=costo)
     db.session.add(p)
     db.session.commit()
