@@ -345,9 +345,6 @@ def restar_credito(cid):
         return jsonify({"error": "El monto a restar debe ser positivo"}), 400
 
     saldo = c.credito_balance or Decimal("0")
-    if saldo < monto:
-        return jsonify({"error": f"Saldo insuficiente. Tienes {float(saldo)}, intentas restar {float(monto)}"}), 400
-
     c.credito_balance = saldo - monto
     mov = CreditoMovimiento(cliente_id=cid, tipo="descuento", monto=-monto, nota=nota)
     db.session.add(mov)
@@ -374,9 +371,6 @@ def consumo_manual(cid):
     monto_cobrado = tarifa.precio
 
     saldo = c.credito_balance or Decimal("0")
-    if saldo < monto_cobrado:
-        return jsonify({"error": f"Saldo insuficiente. Tienes {float(saldo)}, se requieren {float(monto_cobrado)}"}), 400
-
     utilidad = monto_cobrado - costo_usd
 
     inst = Instancia(cliente_id=cid, tipo=tipo)
@@ -637,9 +631,6 @@ def aprobar_generacion(cid, gid):
     if not tarifa:
         return jsonify({"error": f"No hay tarifa configurada para tipo {inst.tipo}"}), 400
     monto_cobrado = tarifa.precio
-
-    if (c.credito_balance or Decimal("0")) < monto_cobrado:
-        return jsonify({"error": "Crédito insuficiente"}), 400
 
     # Calcular costo total de todas las generaciones de la instancia
     todas = Generacion.query.filter_by(instancia_id=inst.id).all()
