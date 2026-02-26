@@ -5,13 +5,17 @@ from app.models import Cliente, Prompt, Feedback, Instancia, Generacion, Credito
 from decimal import Decimal
 from app.services.prompt_generator import generar_prompt as svc_generar_prompt
 from app.services.media_generator import generar_imagen, generar_video, submit_video, obtener_resultado_video
+import app.services.media_generator as media_gen
 from app.services.profile_updater import extraer_insights_de_feedback
+from app.services.contexto_chat import chat_contexto, obtener_contexto
+from app.services.plan_chat import chat_plan, obtener_plan, build_contexto_para_prompt
+from app.services.video_text_overlay import agregar_texto_video
 
 bp = Blueprint("clientes", __name__, url_prefix="/api/clientes")
 
 
 def _cliente_json(c):
-    return {
+    out = {
         "id": c.id,
         "nombre": c.nombre,
         "empresa": c.empresa,
@@ -23,6 +27,13 @@ def _cliente_json(c):
         "credito_balance": float(c.credito_balance) if c.credito_balance else 0,
         "created_at": c.created_at.isoformat() if c.created_at else None,
     }
+    if hasattr(c, "contexto_perfil"):
+        out["contexto_perfil"] = c.contexto_perfil
+    if hasattr(c, "plan_marketing"):
+        out["plan_marketing"] = c.plan_marketing
+    if hasattr(c, "notas"):
+        out["notas"] = c.notas or []
+    return out
 
 
 @bp.route("", methods=["GET"])
@@ -59,13 +70,129 @@ def obtener(cid):
 def actualizar(cid):
     c = Cliente.query.get_or_404(cid)
     data = request.get_json() or {}
-    for k in ["nombre", "empresa", "industria", "descripcion_negocio", "tono_voz", "colores_preferidos", "referencias_visuales"]:
+    for k in ["nombre", "empresa", "industria", "descripcion_negocio", "tono_voz", "colores_preferidos", "referencias_visuales", "contexto_perfil", "plan_marketing", "notas"]:
         if k in data:
             setattr(c, k, data[k])
     if "credito_balance" in data:
         c.credito_balance = Decimal(str(data["credito_balance"]))
     db.session.commit()
     return jsonify(_cliente_json(c))
+
+
+@bp.route("/<int:cid>/contexto", methods=["GET"])
+def obtener_contexto_route(cid):
+    c = Cliente.query.get_or_404(cid)
+    ctx = obtener_contexto(c)
+    return jsonify({"contexto": ctx})
+
+
+@bp.route("/<int:cid>/contexto", methods=["PUT"])
+def actualizar_contexto(cid):
+    c = Cliente.query.get_or_404(cid)
+    data = request.get_json() or {}
+    ctx = data.get("contexto")
+    if ctx is not None:
+        c.contexto_perfil = ctx
+        db.session.commit()
+    return jsonify({"contexto": obtener_contexto(c)})
+
+
+@bp.route("/<int:cid>/plan-chat", methods=["POST"])
+def plan_chat(cid):
+    c = Cliente.query.get_or_404(cid)
+    data = request.get_json() or {}
+    msg = (data.get("message") or "").strip()
+    guardar = bool(data.get("guardar"))
+    messages = data.get("messages") or []
+    if not msg:
+        return jsonify({"error": "Se requiere 'message'"}), 400
+    try:
+        respuesta, plan = chat_plan(c, msg, messages, guardar=guardar)
+        if plan is not None:
+            c.plan_marketing = plan
+            db.session.commit()
+            return jsonify({
+                "respuesta": respuesta,
+                "plan_actualizado": plan,
+                "guardado": True,
+            })
+        return jsonify({"respuesta": respuesta})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@bp.route("/<int:cid>/contexto-para-prompt", methods=["GET"])
+def contexto_para_prompt(cid):
+    """Retorna el contexto completo (perfil + plan) para generar prompts."""
+    c = Cliente.query.get_or_404(cid)
+    campaña_id = request.args.get("campaña_id")
+    ctx = build_contexto_para_prompt(c, campaña_id=campaña_id)
+    return jsonify({"contexto": ctx})
+
+
+@bp.route("/<int:cid>/plan/metricas", methods=["PUT"])
+def actualizar_metricas_plan(cid):
+    """Actualiza métricas de una campaña u objetivo del plan."""
+    c = Cliente.query.get_or_404(cid)
+    data = request.get_json() or {}
+    plan = obtener_plan(c)
+    tipo = data.get("tipo")  # "campaña" o "objetivo"
+    elem_id = data.get("id")
+    metricas = data.get("metricas")  # dict de { kpi: { meta, actual } }
+    progreso = data.get("progreso")
+    estado = data.get("estado")
+
+    if tipo == "objetivo":
+        for o in plan.get("objetivos", []):
+            if o.get("id") == elem_id:
+                if progreso is not None:
+                    o["progreso"] = progreso
+                if estado:
+                    o["estado"] = estado
+                if data.get("actual") is not None:
+                    o["actual"] = data["actual"]
+                break
+    elif tipo == "campaña":
+        for camp in plan.get("campañas", []):
+            if camp.get("id") == elem_id:
+                if metricas:
+                    camp.setdefault("metricas", {})
+                    for k, v in metricas.items():
+                        if isinstance(v, dict):
+                            camp["metricas"][k] = v
+                        else:
+                            camp["metricas"][k] = {"actual": v}
+                if estado:
+                    camp["estado"] = estado
+                break
+
+    c.plan_marketing = plan
+    db.session.commit()
+    return jsonify({"plan_marketing": plan})
+
+
+@bp.route("/<int:cid>/contexto-chat", methods=["POST"])
+def contexto_chat(cid):
+    c = Cliente.query.get_or_404(cid)
+    data = request.get_json() or {}
+    msg = (data.get("message") or "").strip()
+    guardar = bool(data.get("guardar"))
+    messages = data.get("messages") or []
+    if not msg:
+        return jsonify({"error": "Se requiere 'message'"}), 400
+    try:
+        respuesta, actualizaciones = chat_contexto(c, msg, messages, guardar=guardar)
+        if actualizaciones is not None:
+            c.contexto_perfil = actualizaciones
+            db.session.commit()
+            return jsonify({
+                "respuesta": respuesta,
+                "contexto_actualizado": actualizaciones,
+                "guardado": True,
+            })
+        return jsonify({"respuesta": respuesta})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
 
 @bp.route("/<int:cid>", methods=["DELETE"])
@@ -132,6 +259,7 @@ def generar_prompt(cid):
         return jsonify({"error": f"Error OpenRouter: {str(e)}"}), 503
     contenido, costo, modelo = result[0], result[1], result[2]
     estructura = result[3] if len(result) > 3 else None
+    texto_overlay = result[4] if len(result) > 4 else None
     out = {
         "contenido": contenido,
         "costo_usd": float(costo) if costo else None,
@@ -140,6 +268,8 @@ def generar_prompt(cid):
     }
     if estructura:
         out["estructura"] = estructura
+    if texto_overlay:
+        out["texto_overlay"] = texto_overlay
     # Solo guardar en BD cuando es el prompt final (no preguntas/respuestas)
     if solicitar_prompt_final:
         p = Prompt(cliente_id=cid, tipo=tipo, contenido=contenido, costo_usd=costo)
@@ -205,6 +335,122 @@ def recargar_credito(cid):
     return jsonify(_cliente_json(c))
 
 
+@bp.route("/<int:cid>/restar-credito", methods=["POST"])
+def restar_credito(cid):
+    c = Cliente.query.get_or_404(cid)
+    data = request.get_json() or {}
+    monto = Decimal(str(data.get("monto", 0)))
+    nota = data.get("nota")
+    if monto <= 0:
+        return jsonify({"error": "El monto a restar debe ser positivo"}), 400
+
+    saldo = c.credito_balance or Decimal("0")
+    if saldo < monto:
+        return jsonify({"error": f"Saldo insuficiente. Tienes {float(saldo)}, intentas restar {float(monto)}"}), 400
+
+    c.credito_balance = saldo - monto
+    mov = CreditoMovimiento(cliente_id=cid, tipo="descuento", monto=-monto, nota=nota)
+    db.session.add(mov)
+    db.session.commit()
+    return jsonify(_cliente_json(c))
+
+
+@bp.route("/<int:cid>/consumo-manual", methods=["POST"])
+def consumo_manual(cid):
+    """Registra una generación hecha manualmente (fuera de la API). Resta créditos según tarifa,
+    pide el costo en USD que pagaste, y crea RegistroContabilidad para utilidad."""
+    c = Cliente.query.get_or_404(cid)
+    data = request.get_json() or {}
+    tipo = (data.get("tipo") or "").strip().lower()
+    costo_usd = Decimal(str(data.get("costo_usd", 0)))
+    if tipo not in ("imagen", "video", "carrusel"):
+        return jsonify({"error": "tipo debe ser imagen, video o carrusel"}), 400
+    if costo_usd < 0:
+        return jsonify({"error": "El costo debe ser >= 0"}), 400
+
+    tarifa = PrecioTarifa.query.filter_by(tipo=tipo).first()
+    if not tarifa:
+        return jsonify({"error": f"No hay tarifa configurada para {tipo}"}), 400
+    monto_cobrado = tarifa.precio
+
+    saldo = c.credito_balance or Decimal("0")
+    if saldo < monto_cobrado:
+        return jsonify({"error": f"Saldo insuficiente. Tienes {float(saldo)}, se requieren {float(monto_cobrado)}"}), 400
+
+    utilidad = monto_cobrado - costo_usd
+
+    inst = Instancia(cliente_id=cid, tipo=tipo)
+    db.session.add(inst)
+    db.session.flush()
+
+    inst.monto_cobrado = monto_cobrado
+    c.credito_balance = saldo - monto_cobrado
+    mov = CreditoMovimiento(
+        cliente_id=cid,
+        tipo="consumo",
+        monto=-monto_cobrado,
+        referencia=inst.id,
+        nota=f"Generación manual {tipo} (costo USD: {costo_usd})",
+    )
+    db.session.add(mov)
+    from app.models import RegistroContabilidad
+    reg = RegistroContabilidad(
+        cliente_id=cid,
+        instancia_id=inst.id,
+        monto_cobrado=monto_cobrado,
+        costo_total_generaciones=costo_usd,
+        utilidad=utilidad,
+    )
+    db.session.add(reg)
+    db.session.commit()
+    return jsonify(_cliente_json(c))
+
+
+@bp.route("/<int:cid>/notas", methods=["POST"])
+def agregar_nota(cid):
+    from datetime import datetime
+    c = Cliente.query.get_or_404(cid)
+    data = request.get_json() or {}
+    texto = (data.get("texto") or "").strip()
+    if not texto:
+        return jsonify({"error": "Escribe la nota"}), 400
+
+    notas = list(c.notas or [])
+    notas.insert(0, {"texto": texto, "created_at": datetime.utcnow().isoformat()})
+    c.notas = notas
+    db.session.commit()
+    return jsonify(_cliente_json(c))
+
+
+@bp.route("/<int:cid>/notas/<int:idx>", methods=["PUT"])
+def editar_nota(cid, idx):
+    c = Cliente.query.get_or_404(cid)
+    data = request.get_json() or {}
+    texto = (data.get("texto") or "").strip()
+    if not texto:
+        return jsonify({"error": "Escribe la nota"}), 400
+
+    notas = list(c.notas or [])
+    if idx < 0 or idx >= len(notas):
+        return jsonify({"error": "Nota no encontrada"}), 404
+    notas[idx] = {**notas[idx], "texto": texto}
+    c.notas = notas
+    db.session.commit()
+    return jsonify(_cliente_json(c))
+
+
+@bp.route("/<int:cid>/notas/<int:idx>", methods=["DELETE"])
+def borrar_nota(cid, idx):
+    c = Cliente.query.get_or_404(cid)
+    notas = list(c.notas or [])
+    if idx < 0 or idx >= len(notas):
+        return jsonify({"error": "Nota no encontrada"}), 404
+    notas.pop(idx)
+    c.notas = notas
+    db.session.commit()
+    return jsonify(_cliente_json(c))
+
+
 @bp.route("/<int:cid>/generar-media", methods=["POST"])
 def generar_media(cid):
     c = Cliente.query.get_or_404(cid)
@@ -233,6 +479,12 @@ def generar_media(cid):
         image_url = data.get("image_url") or (image_urls[0] if image_urls else None)
         tail_image_url = data.get("tail_image_url") or (image_urls[1] if len(image_urls) > 1 else None)
         duration = data.get("duration", 5)
+
+        if tipo == "video":
+            print(f"[Melo] generar-media video: prompt_len={len(prompt_texto)}, image_url={bool(image_url)}, tail_url={bool(tail_image_url)}, duration={duration}", flush=True)
+            if image_url:
+                print(f"[Melo] image_url: {str(image_url)[:120]}...", flush=True)
+
         if tipo == "imagen":
             url, costo, model = generar_imagen(prompt_texto, modelo=modelo_img, image_urls=image_urls if image_urls else None)
         elif tipo == "video":
@@ -319,9 +571,21 @@ def obtener_resultado_generacion(cid, gid):
             "costo_usd": float(g.costo_usd) if g.costo_usd else 0,
             "modelo": g.fal_model,
         })
+    if request.args.get("debug") and getattr(media_gen, "fal_client", None):
+        try:
+            st = media_gen.fal_client.status(g.fal_model, g.fal_request_id, with_logs=True)
+            return jsonify({
+                "debug_status": str(type(st).__name__),
+                "status_repr": repr(st)[:500],
+                "model": g.fal_model,
+                "request_id": g.fal_request_id,
+            })
+        except Exception as e:
+            import traceback
+            return jsonify({"debug_error": str(e), "traceback": traceback.format_exc()}), 500
     result = obtener_resultado_video(g.fal_request_id, g.fal_model)
     if result is None:
-        return jsonify({"status": "procesando", "generacion_id": g.id}), 202
+        return jsonify({"status": "procesando", "generacion_id": g.id, "message": "Video aún generándose en fal.ai"}), 202
     url, costo, model = result
     g.url_asset = url
     g.costo_usd = costo
@@ -409,6 +673,37 @@ def rechazar_generacion(cid, gid):
     g.motivo_rechazo = motivo or None
     db.session.commit()
     return jsonify({"message": "Rechazada", "cliente": _cliente_json(c)})
+
+
+@bp.route("/<int:cid>/generaciones/<int:gid>/agregar-texto", methods=["POST"])
+def agregar_texto_a_video(cid, gid):
+    """Añade texto sobreimpreso al video. Solo para generaciones de tipo video con url_asset."""
+    Cliente.query.get_or_404(cid)
+    g = Generacion.query.filter_by(id=gid, cliente_id=cid).first_or_404()
+    if g.tipo != "video":
+        return jsonify({"error": "Solo se puede añadir texto a videos"}), 400
+    if not g.url_asset:
+        return jsonify({"error": "El video aún no está listo"}), 400
+    data = request.get_json() or {}
+    texto = (data.get("texto") or "").strip()
+    posicion = data.get("posicion") or "center"
+    if not texto:
+        return jsonify({"error": "Indica el texto a mostrar"}), 400
+    try:
+        nueva_url = agregar_texto_video(g.url_asset, texto, posicion=posicion)
+        g.url_asset = nueva_url
+        db.session.commit()
+        return jsonify({
+            "message": "Texto añadido",
+            "url_asset": nueva_url,
+        })
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        import traceback
+        print(f"[Melo] agregar-texto error: {e}", flush=True)
+        traceback.print_exc()
+        return jsonify({"error": f"Error: {str(e)}"}), 503
 
 
 @bp.route("/<int:cid>/instancias", methods=["GET"])
