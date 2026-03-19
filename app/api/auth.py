@@ -23,6 +23,13 @@ def login():
     return jsonify({"error": "Credenciales incorrectas"}), 401
 
 
+@auth_api_bp.route("/me", methods=["GET"])
+def me():
+    if session.get("admin"):
+        return jsonify({"ok": True})
+    return jsonify({"error": "No autorizado"}), 401
+
+
 @auth_api_bp.route("/logout", methods=["GET", "POST"])
 def logout():
     session.pop("admin", None)

@@ -14,5 +14,5 @@ COPY . .
 
 ENV FLASK_APP=run.py
 
-# Migraciones + arranque
-CMD flask db upgrade && gunicorn --bind 0.0.0.0:$PORT run:app
+# Migraciones + seed + arranque (seed es idempotente: no hace nada si ya hay data)
+CMD flask db upgrade && python scripts/seed.py && gunicorn --bind 0.0.0.0:$PORT run:app
