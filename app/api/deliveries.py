@@ -85,13 +85,14 @@ def generate_deliveries():
         ClientSubscription.query
         .join(Subscription, ClientSubscription.subscription_id == Subscription.id)
         .filter(ClientSubscription.status == "active")
+        .filter(Subscription.type == "plan")
         .filter(Subscription.deliveries_per_week > 0)
         .all()
     )
 
     for cs in active_subs:
         sub = cs.subscription
-        if sub.deliveries_per_week < 1:
+        if not sub or sub.deliveries_per_week < 1:
             continue
         existing = Delivery.query.filter_by(
             client_id=cs.client_id,
@@ -104,6 +105,7 @@ def generate_deliveries():
             due_date=ws,
             status="pending",
             type="auto",
+            description=sub.delivery_contents or None,
         )
         db.session.add(delivery)
         created += 1

@@ -122,29 +122,30 @@ def list_client_subscriptions(client_id):
 
 @clients_bp.route("/<int:client_id>/subscriptions", methods=["POST"])
 def create_client_subscription(client_id):
-    client = Client.query.get_or_404(client_id)
+    Client.query.get_or_404(client_id)
     data = request.get_json()
     subscription = Subscription.query.get_or_404(data["subscription_id"])
     start_date = data["start_date"]
     end_date = data["end_date"]
+    web_enabled = bool(data.get("web_enabled", False))
 
-    sub_type = subscription.type
-    if sub_type == "plan":
-        existing = ClientSubscription.query.join(Subscription).filter(
-            ClientSubscription.client_id == client_id,
-            Subscription.type == "plan",
-            ClientSubscription.status == "active",
-        ).first()
-        if existing:
-            return jsonify({"error": "El cliente ya tiene un plan activo"}), 400
-    elif sub_type in ("web_design", "web_maintenance"):
-        existing = ClientSubscription.query.join(Subscription).filter(
-            ClientSubscription.client_id == client_id,
-            Subscription.type.in_(("web_design", "web_maintenance")),
-            ClientSubscription.status == "active",
-        ).first()
-        if existing:
-            return jsonify({"error": "El cliente ya tiene una suscripción web activa"}), 400
+    if subscription.type != "plan":
+        return jsonify({"error": "Solo se pueden asignar planes principales"}), 400
+
+    existing = ClientSubscription.query.join(Subscription).filter(
+        ClientSubscription.client_id == client_id,
+        Subscription.type == "plan",
+        ClientSubscription.status == "active",
+    ).first()
+    if existing:
+        return jsonify({"error": "El cliente ya tiene un plan activo"}), 400
+
+    if web_enabled and not subscription.web_active:
+        return jsonify({"error": "Este plan no tiene precios de web configurados"}), 400
+    if web_enabled and (
+        subscription.web_creation_price is None or subscription.web_maintenance_monthly is None
+    ):
+        return jsonify({"error": "Completa precios de creación y mantención web en la suscripción"}), 400
 
     cs = ClientSubscription(
         client_id=client_id,
@@ -152,6 +153,7 @@ def create_client_subscription(client_id):
         start_date=start_date,
         end_date=end_date,
         status="active",
+        web_enabled=web_enabled,
     )
     db.session.add(cs)
     db.session.commit()
@@ -162,9 +164,16 @@ def create_client_subscription(client_id):
 def update_client_subscription(client_id, cs_id):
     cs = ClientSubscription.query.filter_by(id=cs_id, client_id=client_id).first_or_404()
     data = request.get_json()
-    for key in ("start_date", "end_date", "status"):
+    for key in ("start_date", "end_date", "status", "web_enabled"):
         if key in data:
-            setattr(cs, key, data[key])
+            if key == "web_enabled":
+                val = bool(data[key])
+                sub = cs.subscription
+                if val and sub and (not sub.web_active or sub.web_creation_price is None or sub.web_maintenance_monthly is None):
+                    return jsonify({"error": "Este plan no permite activar web o faltan precios"}), 400
+                cs.web_enabled = val
+            else:
+                setattr(cs, key, data[key])
     db.session.commit()
     return jsonify(_client_sub_to_dict(cs))
 
@@ -203,4 +212,9 @@ def _client_sub_to_dict(cs):
         "start_date": cs.start_date.isoformat() if cs.start_date else None,
         "end_date": cs.end_date.isoformat() if cs.end_date else None,
         "status": cs.status,
+        "web_enabled": bool(cs.web_enabled) if cs.web_enabled is not None else False,
+        "delivery_contents": sub.delivery_contents if sub else None,
+        "web_creation_price": sub.web_creation_price if sub else None,
+        "web_maintenance_monthly": sub.web_maintenance_monthly if sub else None,
+        "plan_web_active": sub.web_active if sub else False,
     }

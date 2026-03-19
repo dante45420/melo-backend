@@ -8,7 +8,7 @@ subscriptions_bp = Blueprint("subscriptions", __name__)
 
 @subscriptions_bp.route("", methods=["GET"])
 def list_subscriptions():
-    subs = Subscription.query.order_by(Subscription.type, Subscription.price_monthly).all()
+    subs = Subscription.query.order_by(Subscription.price_monthly).all()
     return jsonify([_sub_to_dict(s) for s in subs])
 
 
@@ -18,16 +18,42 @@ def get_subscription(sub_id):
     return jsonify(_sub_to_dict(sub))
 
 
+BUNDLED_KEYS = {
+    "name",
+    "slug",
+    "type",
+    "price_monthly",
+    "deliveries_per_week",
+    "delivery_contents",
+    "web_active",
+    "web_creation_price",
+    "web_maintenance_monthly",
+    "description",
+}
+
+
+def _opt_int(v):
+    if v is None or v == "":
+        return None
+    return int(v)
+
+
 @subscriptions_bp.route("", methods=["POST"])
 def create_subscription():
     data = request.get_json()
+    sub_type = data.get("type", "plan")
+    if sub_type != "plan":
+        return jsonify({"error": "Solo se permiten suscripciones tipo plan"}), 400
     sub = Subscription(
         name=data["name"],
         slug=data["slug"],
-        type=data["type"],
-        price_monthly=data["price_monthly"],
-        deliveries_per_week=data.get("deliveries_per_week", 0),
-        is_addon=data.get("is_addon", False),
+        type="plan",
+        price_monthly=int(data["price_monthly"]),
+        deliveries_per_week=int(data.get("deliveries_per_week") or 0),
+        delivery_contents=data.get("delivery_contents"),
+        web_active=bool(data.get("web_active", False)),
+        web_creation_price=_opt_int(data.get("web_creation_price")),
+        web_maintenance_monthly=_opt_int(data.get("web_maintenance_monthly")),
         description=data.get("description"),
     )
     db.session.add(sub)
@@ -39,9 +65,20 @@ def create_subscription():
 def update_subscription(sub_id):
     sub = Subscription.query.get_or_404(sub_id)
     data = request.get_json()
-    for key in ("name", "slug", "type", "price_monthly", "deliveries_per_week", "is_addon", "description"):
+    if data.get("type") is not None and data["type"] != "plan":
+        return jsonify({"error": "Solo se permiten suscripciones tipo plan"}), 400
+    for key in BUNDLED_KEYS:
         if key in data:
-            setattr(sub, key, data[key])
+            val = data[key]
+            if key == "web_active":
+                val = bool(val)
+            elif key in ("web_creation_price", "web_maintenance_monthly"):
+                val = _opt_int(val)
+            elif key in ("deliveries_per_week", "price_monthly"):
+                val = int(val) if val is not None and val != "" else getattr(sub, key)
+            setattr(sub, key, val)
+    if "type" in data:
+        sub.type = "plan"
     db.session.commit()
     return jsonify(_sub_to_dict(sub))
 
@@ -54,6 +91,9 @@ def _sub_to_dict(sub):
         "type": sub.type,
         "price_monthly": sub.price_monthly,
         "deliveries_per_week": sub.deliveries_per_week,
-        "is_addon": sub.is_addon,
+        "delivery_contents": sub.delivery_contents,
+        "web_active": sub.web_active,
+        "web_creation_price": sub.web_creation_price,
+        "web_maintenance_monthly": sub.web_maintenance_monthly,
         "description": sub.description,
     }

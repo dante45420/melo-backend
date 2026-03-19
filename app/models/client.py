@@ -33,6 +33,7 @@ class ClientSubscription(db.Model):
     start_date = db.Column(db.Date, nullable=False)
     end_date = db.Column(db.Date, nullable=False)
     status = db.Column(db.String(20), default="active")  # active, cancelled, expired
+    web_enabled = db.Column(db.Boolean, default=False)  # cliente con web activa en este plan
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
 
