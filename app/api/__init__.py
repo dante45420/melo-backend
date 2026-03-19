@@ -14,6 +14,9 @@ def register_api_blueprints(flask_app):
     @flask_app.before_request
     def _require_admin_for_api():
         from flask import request
+        # OPTIONS (preflight CORS) no envía cookies; debe pasar para que CORS funcione
+        if request.method == "OPTIONS":
+            return None
         if request.path.startswith("/api/") and not request.path.startswith("/api/auth/"):
             if not session.get("admin"):
                 return jsonify({"error": "No autorizado"}), 401
