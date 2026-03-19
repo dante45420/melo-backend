@@ -54,12 +54,17 @@ def get_churn_for_month(year: int, month: int):
 
 
 def get_cac_for_month(year: int, month: int):
-    month_str = f"{year:04d}-{month:02d}"
+    first_day = date(year, month, 1)
+    if month == 12:
+        next_month = date(year + 1, 1, 1)
+    else:
+        next_month = date(year, month + 1, 1)
+
     marketing_expenses = (
         db.session.query(func.coalesce(func.sum(Expense.amount), 0))
         .join(ExpenseCategory)
         .filter(ExpenseCategory.is_marketing == True)
-        .filter(func.strftime("%Y-%m", Expense.expense_date) == month_str)
+        .filter(Expense.expense_date >= first_day, Expense.expense_date < next_month)
         .scalar()
     ) or 0
 

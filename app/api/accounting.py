@@ -1,10 +1,22 @@
+from datetime import date
+
 from flask import Blueprint, request, jsonify
 
-from sqlalchemy import func
 from app.extensions import db
 from app.models import Expense, ExpenseCategory, Income, IncomeCategory
 
 accounting_bp = Blueprint("accounting", __name__)
+
+
+def _month_range_from_str(month_str):
+    """Convierte 'YYYY-MM' a (first_day, next_month)."""
+    year, month = int(month_str[:4]), int(month_str[5:7])
+    first = date(year, month, 1)
+    if month == 12:
+        next_month = date(year + 1, 1, 1)
+    else:
+        next_month = date(year, month + 1, 1)
+    return first, next_month
 
 
 @accounting_bp.route("/expenses", methods=["GET"])
@@ -15,7 +27,8 @@ def list_expenses():
     if category_id:
         q = q.filter(Expense.category_id == category_id)
     if month:
-        q = q.filter(func.strftime("%Y-%m", Expense.expense_date) == month)
+        first_day, next_month = _month_range_from_str(month)
+        q = q.filter(Expense.expense_date >= first_day, Expense.expense_date < next_month)
     expenses = q.order_by(Expense.expense_date.desc()).all()
     return jsonify([_expense_to_dict(e) for e in expenses])
 
@@ -98,7 +111,8 @@ def list_incomes():
     if category_id:
         q = q.filter(Income.category_id == category_id)
     if month:
-        q = q.filter(func.strftime("%Y-%m", Income.income_date) == month)
+        first_day, next_month = _month_range_from_str(month)
+        q = q.filter(Income.income_date >= first_day, Income.income_date < next_month)
     incomes = q.order_by(Income.income_date.desc()).all()
     return jsonify([_income_to_dict(i) for i in incomes])
 

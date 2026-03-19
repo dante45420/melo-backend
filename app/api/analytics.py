@@ -24,11 +24,21 @@ def cac():
     return jsonify(get_cac_for_month(year, month))
 
 
+def _month_range(year, month):
+    """Rango de fechas del mes (compatible con PostgreSQL y SQLite)."""
+    first = date(year, month, 1)
+    if month == 12:
+        next_month = date(year + 1, 1, 1)
+    else:
+        next_month = date(year, month + 1, 1)
+    return first, next_month
+
+
 @analytics_bp.route("/dashboard", methods=["GET"])
 def dashboard():
     today = date.today()
     year, month = today.year, today.month
-    month_str = f"{year:04d}-{month:02d}"
+    first_day, next_month = _month_range(year, month)
 
     churn_data = get_churn_for_month(year, month)
     cac_data = get_cac_for_month(year, month)
@@ -37,19 +47,19 @@ def dashboard():
         db.session.query(func.coalesce(func.sum(Expense.amount), 0))
         .join(ExpenseCategory)
         .filter(ExpenseCategory.is_marketing == True)
-        .filter(func.strftime("%Y-%m", Expense.expense_date) == month_str)
+        .filter(Expense.expense_date >= first_day, Expense.expense_date < next_month)
         .scalar()
     ) or 0
 
     total_expenses_month = (
         db.session.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(func.strftime("%Y-%m", Expense.expense_date) == month_str)
+        .filter(Expense.expense_date >= first_day, Expense.expense_date < next_month)
         .scalar()
     ) or 0
 
     total_incomes_month = (
         db.session.query(func.coalesce(func.sum(Income.amount), 0))
-        .filter(func.strftime("%Y-%m", Income.income_date) == month_str)
+        .filter(Income.income_date >= first_day, Income.income_date < next_month)
         .scalar()
     ) or 0
 
