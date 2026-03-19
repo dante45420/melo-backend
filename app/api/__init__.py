@@ -7,7 +7,7 @@ from app.api.payments import payments_bp
 from app.api.deliveries import deliveries_bp
 from app.api.accounting import accounting_bp
 from app.api.analytics import analytics_bp
-from app.api.categories import categories_bp
+from app.api.client_field_definitions import field_defs_bp
 
 
 def register_api_blueprints(flask_app):
@@ -27,4 +27,4 @@ def register_api_blueprints(flask_app):
     flask_app.register_blueprint(deliveries_bp, url_prefix="/api/deliveries")
     flask_app.register_blueprint(accounting_bp, url_prefix="/api")
     flask_app.register_blueprint(analytics_bp, url_prefix="/api/analytics")
-    flask_app.register_blueprint(categories_bp, url_prefix="/api")
+    flask_app.register_blueprint(field_defs_bp, url_prefix="/api/client-field-definitions")

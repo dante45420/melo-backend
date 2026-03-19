@@ -8,13 +8,20 @@ class Client(db.Model):
     name = db.Column(db.String(200), nullable=False)
     email = db.Column(db.String(200))
     phone = db.Column(db.String(50))
+    posts_liked = db.Column(db.Text)
+    posts_disliked = db.Column(db.Text)
+    notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
 
-    client_info = db.relationship("ClientInfo", back_populates="client", uselist=False, cascade="all, delete-orphan")
     client_subscriptions = db.relationship("ClientSubscription", back_populates="client", cascade="all, delete-orphan")
     payments = db.relationship("Payment", back_populates="client", cascade="all, delete-orphan")
     deliveries = db.relationship("Delivery", back_populates="client", cascade="all, delete-orphan")
+    custom_field_values = db.relationship(
+        "ClientFieldValue",
+        back_populates="client",
+        cascade="all, delete-orphan",
+    )
 
 
 class ClientSubscription(db.Model):

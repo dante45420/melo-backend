@@ -1,7 +1,13 @@
 from flask import Blueprint, request, jsonify
 
 from app.extensions import db
-from app.models import Client, ClientInfo, ClientSubscription, Subscription
+from app.models import (
+    Client,
+    ClientSubscription,
+    Subscription,
+    ClientFieldDefinition,
+    ClientFieldValue,
+)
 
 clients_bp = Blueprint("clients", __name__)
 
@@ -15,7 +21,7 @@ def list_clients():
 @clients_bp.route("/<int:client_id>", methods=["GET"])
 def get_client(client_id):
     client = Client.query.get_or_404(client_id)
-    return jsonify(_client_to_dict(client, include_info=True, include_subscriptions=True))
+    return jsonify(_client_to_dict(client, include_subscriptions=True))
 
 
 @clients_bp.route("", methods=["POST"])
@@ -27,9 +33,6 @@ def create_client():
         phone=data.get("phone"),
     )
     db.session.add(client)
-    db.session.flush()
-    info = ClientInfo(client_id=client.id)
-    db.session.add(info)
     db.session.commit()
     return jsonify(_client_to_dict(client)), 201
 
@@ -38,40 +41,76 @@ def create_client():
 def update_client(client_id):
     client = Client.query.get_or_404(client_id)
     data = request.get_json()
-    for key in ("name", "email", "phone"):
+    for key in ("name", "email", "phone", "posts_liked", "posts_disliked", "notes"):
         if key in data:
             setattr(client, key, data[key])
     db.session.commit()
     return jsonify(_client_to_dict(client))
 
 
-@clients_bp.route("/<int:client_id>/info", methods=["GET"])
-def get_client_info(client_id):
-    client = Client.query.get_or_404(client_id)
-    if not client.client_info:
-        info = ClientInfo(client_id=client.id)
-        db.session.add(info)
-        db.session.commit()
-    else:
-        info = client.client_info
-    return jsonify(_client_info_to_dict(info))
+@clients_bp.route("/<int:client_id>/custom-field-values", methods=["GET"])
+def get_client_custom_field_values(client_id):
+    Client.query.get_or_404(client_id)
+    definitions = (
+        ClientFieldDefinition.query.order_by(
+            ClientFieldDefinition.sort_order,
+            ClientFieldDefinition.id,
+        ).all()
+    )
+    rows = ClientFieldValue.query.filter_by(client_id=client_id).all()
+    by_def = {r.field_definition_id: r.value for r in rows}
+    return jsonify(
+        [
+            {
+                "id": d.id,
+                "label": d.label,
+                "sort_order": d.sort_order,
+                "value": by_def.get(d.id),
+            }
+            for d in definitions
+        ]
+    )
 
 
-@clients_bp.route("/<int:client_id>/info", methods=["PUT", "PATCH"])
-def update_client_info(client_id):
-    client = Client.query.get_or_404(client_id)
-    if not client.client_info:
-        info = ClientInfo(client_id=client.id)
-        db.session.add(info)
-        db.session.flush()
-    else:
-        info = client.client_info
-    data = request.get_json()
-    for key in ("value_proposition_id", "company_info_id", "previous_results_id", "posts_liked", "posts_disliked", "notes"):
-        if key in data:
-            setattr(info, key, data[key])
+@clients_bp.route("/<int:client_id>/custom-field-values", methods=["PUT"])
+def put_client_custom_field_values(client_id):
+    Client.query.get_or_404(client_id)
+    data = request.get_json() or {}
+    values = data.get("values")
+    if not isinstance(values, dict):
+        return jsonify({"error": "values debe ser un objeto { idDefinicion: texto }"}), 400
+
+    for key, text in values.items():
+        try:
+            def_id = int(key)
+        except (TypeError, ValueError):
+            return jsonify({"error": f"clave inválida: {key}"}), 400
+        if not ClientFieldDefinition.query.get(def_id):
+            return jsonify({"error": f"definición {def_id} no existe"}), 404
+
+        row = ClientFieldValue.query.filter_by(
+            client_id=client_id,
+            field_definition_id=def_id,
+        ).first()
+
+        if text is None or (isinstance(text, str) and text.strip() == ""):
+            if row:
+                db.session.delete(row)
+        else:
+            val = text if isinstance(text, str) else str(text)
+            if row:
+                row.value = val
+            else:
+                db.session.add(
+                    ClientFieldValue(
+                        client_id=client_id,
+                        field_definition_id=def_id,
+                        value=val,
+                    )
+                )
+
     db.session.commit()
-    return jsonify(_client_info_to_dict(info))
+    return get_client_custom_field_values(client_id)
 
 
 @clients_bp.route("/<int:client_id>/subscriptions", methods=["GET"])
@@ -138,32 +177,19 @@ def cancel_client_subscription(client_id, cs_id):
     return jsonify(_client_sub_to_dict(cs)), 200
 
 
-def _client_to_dict(client, include_info=False, include_subscriptions=False):
-    d = {"id": client.id, "name": client.name, "email": client.email, "phone": client.phone}
-    if include_info and client.client_info:
-        d["info"] = _client_info_to_dict(client.client_info)
+def _client_to_dict(client, include_subscriptions=False):
+    d = {
+        "id": client.id,
+        "name": client.name,
+        "email": client.email,
+        "phone": client.phone,
+        "posts_liked": client.posts_liked,
+        "posts_disliked": client.posts_disliked,
+        "notes": client.notes,
+    }
     if include_subscriptions:
         subs = ClientSubscription.query.filter_by(client_id=client.id).all()
         d["subscriptions"] = [_client_sub_to_dict(cs) for cs in subs]
-    return d
-
-
-def _client_info_to_dict(info):
-    d = {
-        "id": info.id,
-        "value_proposition_id": info.value_proposition_id,
-        "company_info_id": info.company_info_id,
-        "previous_results_id": info.previous_results_id,
-        "posts_liked": info.posts_liked,
-        "posts_disliked": info.posts_disliked,
-        "notes": info.notes,
-    }
-    if info.value_proposition:
-        d["value_proposition"] = {"id": info.value_proposition.id, "name": info.value_proposition.name, "content": info.value_proposition.content}
-    if info.company_info:
-        d["company_info"] = {"id": info.company_info.id, "name": info.company_info.name, "content": info.company_info.content}
-    if info.previous_results:
-        d["previous_results"] = {"id": info.previous_results.id, "name": info.previous_results.name, "content": info.previous_results.content}
     return d
 
 

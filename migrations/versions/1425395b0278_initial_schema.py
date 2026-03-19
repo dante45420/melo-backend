@@ -23,15 +23,11 @@ def upgrade():
     sa.Column('name', sa.String(length=200), nullable=False),
     sa.Column('email', sa.String(length=200), nullable=True),
     sa.Column('phone', sa.String(length=50), nullable=True),
+    sa.Column('posts_liked', sa.Text(), nullable=True),
+    sa.Column('posts_disliked', sa.Text(), nullable=True),
+    sa.Column('notes', sa.Text(), nullable=True),
     sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
     sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
-    sa.PrimaryKeyConstraint('id')
-    )
-    op.create_table('company_infos',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('name', sa.String(length=200), nullable=True),
-    sa.Column('content', sa.Text(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('expense_categories',
@@ -44,13 +40,6 @@ def upgrade():
     op.create_table('income_categories',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('name', sa.String(length=100), nullable=False),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
-    sa.PrimaryKeyConstraint('id')
-    )
-    op.create_table('previous_results',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('name', sa.String(length=200), nullable=True),
-    sa.Column('content', sa.Text(), nullable=True),
     sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
@@ -67,31 +56,6 @@ def upgrade():
     sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('slug')
-    )
-    op.create_table('value_propositions',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('name', sa.String(length=200), nullable=True),
-    sa.Column('content', sa.Text(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
-    sa.PrimaryKeyConstraint('id')
-    )
-    op.create_table('client_infos',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('client_id', sa.Integer(), nullable=False),
-    sa.Column('value_proposition_id', sa.Integer(), nullable=True),
-    sa.Column('company_info_id', sa.Integer(), nullable=True),
-    sa.Column('previous_results_id', sa.Integer(), nullable=True),
-    sa.Column('posts_liked', sa.Text(), nullable=True),
-    sa.Column('posts_disliked', sa.Text(), nullable=True),
-    sa.Column('notes', sa.Text(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
-    sa.ForeignKeyConstraint(['client_id'], ['clients.id'], ),
-    sa.ForeignKeyConstraint(['company_info_id'], ['company_infos.id'], ),
-    sa.ForeignKeyConstraint(['previous_results_id'], ['previous_results.id'], ),
-    sa.ForeignKeyConstraint(['value_proposition_id'], ['value_propositions.id'], ),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('client_id')
     )
     op.create_table('client_subscriptions',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -164,12 +128,8 @@ def downgrade():
     op.drop_table('expenses')
     op.drop_table('deliveries')
     op.drop_table('client_subscriptions')
-    op.drop_table('client_infos')
-    op.drop_table('value_propositions')
     op.drop_table('subscriptions')
-    op.drop_table('previous_results')
     op.drop_table('income_categories')
     op.drop_table('expense_categories')
-    op.drop_table('company_infos')
     op.drop_table('clients')
     # ### end Alembic commands ###
