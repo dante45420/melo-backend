@@ -14,7 +14,9 @@ def create_app():
     flask_app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
     frontend_urls = os.environ.get("FRONTEND_URL", "http://localhost:5173").split(",")
-    CORS(flask_app, origins=[u.strip() for u in frontend_urls], supports_credentials=True)
+    # Normalizar: quitar trailing slash (el navegador envía Origin sin slash)
+    origins = [u.strip().rstrip("/") for u in frontend_urls if u.strip()]
+    CORS(flask_app, origins=origins, supports_credentials=True)
 
     flask_app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
     if os.environ.get("FLASK_ENV") == "production":
