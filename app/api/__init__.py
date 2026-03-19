@@ -1,4 +1,4 @@
-from flask import session, jsonify
+from flask import session, jsonify, request, Response
 
 from app.api.auth import auth_api_bp
 from app.api.subscriptions import subscriptions_bp
@@ -13,10 +13,9 @@ from app.api.categories import categories_bp
 def register_api_blueprints(flask_app):
     @flask_app.before_request
     def _require_admin_for_api():
-        from flask import request
-        # OPTIONS (preflight CORS) no envía cookies; debe pasar para que CORS funcione
+        # OPTIONS (preflight CORS) no envía cookies; responder 200 explícito para que preflight pase
         if request.method == "OPTIONS":
-            return None
+            return Response(status=200)
         if request.path.startswith("/api/") and not request.path.startswith("/api/auth/"):
             if not session.get("admin"):
                 return jsonify({"error": "No autorizado"}), 401
